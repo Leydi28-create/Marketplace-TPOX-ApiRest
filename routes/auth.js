@@ -13,12 +13,35 @@ router.post('/register', async (req, res) => {
     }
 
     try {
+        if (!process.env.JWT_SECRET) {
+            return res.status(500).json({ success: false, error: 'JWT_SECRET no configurado' });
+        }
+
+        const safeRol = rol === 'SELLER' ? 'SELLER' : 'BUYER';
         const hashedPassword = await bcrypt.hash(password, 10);
         const [result] = await db.query(
             'INSERT INTO usuarios (nombre, email, password, telefono, direccion_envio, rol) VALUES (?, ?, ?, ?, ?, ?)',
-            [nombre.trim(), email.trim(), hashedPassword, telefono, direccion_envio, rol || 'BUYER']
+            [nombre.trim(), email.trim(), hashedPassword, telefono, direccion_envio, safeRol]
         );
-        res.json({ success: true, message: 'Usuario registrado', id: result.insertId });
+
+        const token = jwt.sign(
+            { id: result.insertId, rol: safeRol },
+            process.env.JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+
+        res.json({
+            success: true,
+            message: 'Usuario registrado',
+            id: result.insertId,
+            token,
+            usuario: {
+                id: result.insertId,
+                nombre: nombre.trim(),
+                email: email.trim(),
+                rol: safeRol,
+            },
+        });
     } catch (error) {
         if (error.code === 'ER_DUP_ENTRY') {
             return res.status(409).json({ success: false, error: 'El email ya está registrado' });

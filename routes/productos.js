@@ -35,16 +35,52 @@ router.get('/:id', async (req, res) => {
     }
 });
 
-// POST crear producto (solo SELLER)
+// POST crear producto (cualquier usuario autenticado; se marca como SELLER)
 router.post('/', auth, async (req, res) => {
-    if (req.user.rol !== 'SELLER') return res.status(403).json({ success: false, error: 'Solo vendedores pueden crear productos' });
-    const { id_categoria, title, descripcion, price, stock, url_imagen } = req.body;
+    const { id_categoria, categoria, title, descripcion, price, stock, url_imagen } = req.body;
+
+    if (!title || !descripcion || price == null || stock == null) {
+        return res.status(400).json({ success: false, error: 'Título, descripción, precio y stock son requeridos' });
+    }
+
     try {
+        let categoryId = id_categoria ? Number(id_categoria) : null;
+
+        if (!categoryId && categoria) {
+            const [cats] = await db.query(
+                'SELECT id_categoria FROM categorias WHERE nombre = ? LIMIT 1',
+                [categoria.trim()]
+            );
+            if (cats.length > 0) {
+                categoryId = cats[0].id_categoria;
+            } else {
+                const [createdCat] = await db.query(
+                    'INSERT INTO categorias (nombre) VALUES (?)',
+                    [categoria.trim()]
+                );
+                categoryId = createdCat.insertId;
+            }
+        }
+
+        if (!categoryId) {
+            return res.status(400).json({ success: false, error: 'Categoría requerida' });
+        }
+
+        // Permitir publicar aunque el JWT diga BUYER (modo vendedor local)
+        await db.query('UPDATE usuarios SET rol = ? WHERE id_usuario = ?', ['SELLER', req.user.id]);
+
         const [result] = await db.query(
             'INSERT INTO productos (id_vendedor, id_categoria, title, descripcion, price, stock, url_imagen) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [req.user.id, id_categoria, title, descripcion, price, stock, url_imagen]
+            [req.user.id, categoryId, title, descripcion, price, stock, url_imagen || null]
         );
-        res.json({ success: true, message: 'Producto creado', id: result.insertId });
+
+        res.json({
+            success: true,
+            message: 'Producto creado',
+            id: result.insertId,
+            id_producto: result.insertId,
+            id_categoria: categoryId,
+        });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }

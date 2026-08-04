@@ -5,3 +5,4 @@ node_modules/
 mysql_status.txt
 .DS_Store
 .railway/
+uploads/
